@@ -1,0 +1,10 @@
+# Local Claude Code / preview tooling
+.claude/
+
+# Original camera source files (already copied into images/)
+dji_fly_*.jpg
+
+# OS / editor cruft
+Thumbs.db
+desktop.ini
+.DS_Store
