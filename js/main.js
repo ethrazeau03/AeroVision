@@ -20,7 +20,18 @@
     initCompare();
     initForm();
     initBackToTop();
+    initScrollProgress();
+    initAuroraShader();
+    initTilt();
+    initMagnetic();
   });
+
+  /* ---------- Small helpers ---------- */
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+  function debounce(fn, ms) {
+    let t;
+    return function () { clearTimeout(t); t = setTimeout(() => fn.apply(null, arguments), ms); };
+  }
 
   /* ---------- Footer year ---------- */
   function setYear() {
@@ -372,6 +383,186 @@
     window.addEventListener("scroll", onScroll, { passive: true });
     btn.addEventListener("click", () => {
       window.scrollTo({ top: 0, behavior: prefersReduced ? "auto" : "smooth" });
+    });
+  }
+
+  /* ---------- Scroll progress bar ---------- */
+  function initScrollProgress() {
+    const bar = $("#scrollProgress");
+    if (!bar) return;
+    const onScroll = () => {
+      const docH = document.documentElement.scrollHeight - window.innerHeight;
+      const p = docH > 0 ? window.scrollY / docH : 0;
+      bar.style.transform = `scaleX(${Math.min(1, Math.max(0, p))})`;
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+  }
+
+  /* ---------- Aurora flow background (WebGL) ---------- */
+  function initAuroraShader() {
+    const canvas = $("#bgShader");
+    if (!canvas) return;
+
+    const fail = () => { canvas.style.display = "none"; }; // html gradient fallback shows
+
+    let gl = null;
+    try {
+      const opts = { antialias: false, depth: false, stencil: false, alpha: false, powerPreference: "low-power" };
+      gl = canvas.getContext("webgl", opts) || canvas.getContext("experimental-webgl", opts);
+    } catch (e) { gl = null; }
+    if (!gl) { fail(); return; }
+
+    const vertSrc =
+      "attribute vec2 a_pos;" +
+      "void main(){ gl_Position = vec4(a_pos, 0.0, 1.0); }";
+
+    const fragSrc = [
+      "precision highp float;",
+      "uniform float u_time;",
+      "uniform vec2 u_res;",
+      "float hash(vec2 p){ p = fract(p * vec2(127.1, 311.7)); p += dot(p, p + 34.5); return fract(p.x * p.y); }",
+      "float noise(vec2 p){",
+      "  vec2 i = floor(p), f = fract(p);",
+      "  float a = hash(i);",
+      "  float b = hash(i + vec2(1.0, 0.0));",
+      "  float c = hash(i + vec2(0.0, 1.0));",
+      "  float d = hash(i + vec2(1.0, 1.0));",
+      "  vec2 u = f * f * (3.0 - 2.0 * f);",
+      "  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);",
+      "}",
+      "float fbm(vec2 p){",
+      "  float v = 0.0, a = 0.5;",
+      "  for (int i = 0; i < 4; i++){ v += a * noise(p); p *= 2.02; a *= 0.5; }",
+      "  return v;",
+      "}",
+      "void main(){",
+      "  vec2 uv = gl_FragCoord.xy / u_res.xy;",
+      "  float aspect = u_res.x / max(u_res.y, 1.0);",
+      "  vec2 p = vec2(uv.x * aspect, uv.y);",
+      "  float t = u_time * 0.045;",
+      "  float w = fbm(p * 1.5 + vec2(t * 0.6, t * 0.25));",
+      "  vec2 q = p + vec2(w * 0.7, w * 0.35);",
+      "  float r1 = fbm(q * 1.6 + vec2(t, -t * 0.5));",
+      "  float r2 = fbm(q * 2.7 + vec2(-t * 0.7, t * 0.3));",
+      "  float f  = fbm(q * 3.6 - vec2(t * 0.3, t * 0.45));",
+      "  float ribbon = smoothstep(0.45, 0.95, r1) + 0.55 * smoothstep(0.55, 1.0, r2);",
+      "  float glow = ribbon * (0.55 + 0.45 * f);",
+      "  vec3 base = vec3(0.015, 0.032, 0.072);",
+      "  vec3 cSky = vec3(0.10, 0.52, 0.92);",
+      "  vec3 cCyan = vec3(0.12, 0.85, 0.80);",
+      "  vec3 cViolet = vec3(0.40, 0.32, 0.86);",
+      "  vec3 col = base;",
+      "  col += cSky * glow * 0.55;",
+      "  col += cCyan * smoothstep(0.75, 1.05, ribbon) * 0.40;",
+      "  col += cViolet * pow(f, 2.2) * 0.22;",
+      "  col += cSky * 0.05 * smoothstep(0.2, 1.0, uv.y);",
+      "  float vig = smoothstep(1.25, 0.25, length(uv - 0.5));",
+      "  col *= 0.82 + 0.18 * vig;",
+      "  gl_FragColor = vec4(col, 1.0);",
+      "}"
+    ].join("\n");
+
+    function compile(type, src) {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { gl.deleteShader(s); return null; }
+      return s;
+    }
+
+    const vs = compile(gl.VERTEX_SHADER, vertSrc);
+    const fs = compile(gl.FRAGMENT_SHADER, fragSrc);
+    if (!vs || !fs) { fail(); return; }
+
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { fail(); return; }
+    gl.useProgram(prog);
+
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    const aPos = gl.getAttribLocation(prog, "a_pos");
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+    const uTime = gl.getUniformLocation(prog, "u_time");
+    const uRes = gl.getUniformLocation(prog, "u_res");
+
+    const RENDER_SCALE = 0.6;
+    function resize() {
+      // The canvas is fixed/inset:0, so its client box tracks the viewport reliably.
+      const vw = canvas.clientWidth || window.innerWidth || document.documentElement.clientWidth || 1;
+      const vh = canvas.clientHeight || window.innerHeight || document.documentElement.clientHeight || 1;
+      const w = Math.max(2, Math.floor(vw * RENDER_SCALE));
+      const h = Math.max(2, Math.floor(vh * RENDER_SCALE));
+      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+      gl.viewport(0, 0, w, h);
+      gl.uniform2f(uRes, w, h);
+    }
+    resize();
+    window.addEventListener("resize", debounce(resize, 200));
+    window.addEventListener("load", resize);
+    if (typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(debounce(resize, 100)).observe(canvas);
+    }
+
+    const drawAt = (seconds) => { gl.uniform1f(uTime, seconds); gl.drawArrays(gl.TRIANGLES, 0, 3); };
+
+    if (prefersReduced) { drawAt(14.0); return; } // single calm static frame
+
+    let raf = null;
+    const start = performance.now();
+    const render = (now) => { drawAt((now - start) / 1000); raf = requestAnimationFrame(render); };
+    const play = () => { if (raf == null) raf = requestAnimationFrame(render); };
+    const pause = () => { if (raf != null) { cancelAnimationFrame(raf); raf = null; } };
+
+    document.addEventListener("visibilitychange", () => { document.hidden ? pause() : play(); });
+    canvas.addEventListener("webglcontextlost", (e) => { e.preventDefault(); pause(); }, false);
+    canvas.addEventListener("webglcontextrestored", () => { resize(); play(); }, false);
+
+    drawAt(0);
+    play();
+  }
+
+  /* ---------- Service card 3D tilt + glow ---------- */
+  function initTilt() {
+    if (prefersReduced) return;
+    $$(".service-card").forEach((card) => {
+      card.addEventListener("pointermove", (e) => {
+        if (e.pointerType === "touch") return;
+        const r = card.getBoundingClientRect();
+        const px = (e.clientX - r.left) / r.width;
+        const py = (e.clientY - r.top) / r.height;
+        const rx = (py - 0.5) * -7;
+        const ry = (px - 0.5) * 9;
+        card.style.setProperty("--mx", (px * 100) + "%");
+        card.style.setProperty("--my", (py * 100) + "%");
+        card.style.transform = `perspective(900px) rotateX(${rx.toFixed(2)}deg) rotateY(${ry.toFixed(2)}deg) translateY(-8px)`;
+        card.classList.add("is-tilting");
+      });
+      const reset = () => { card.style.transform = ""; card.classList.remove("is-tilting"); };
+      card.addEventListener("pointerleave", reset);
+      card.addEventListener("pointercancel", reset);
+    });
+  }
+
+  /* ---------- Magnetic buttons ---------- */
+  function initMagnetic() {
+    if (prefersReduced) return;
+    $$("[data-magnetic]").forEach((el) => {
+      el.addEventListener("pointermove", (e) => {
+        if (e.pointerType === "touch") return;
+        const r = el.getBoundingClientRect();
+        const x = (e.clientX - (r.left + r.width / 2)) * 0.3;
+        const y = (e.clientY - (r.top + r.height / 2)) * 0.3;
+        el.style.transform = `translate(${x.toFixed(1)}px, ${(y - 3).toFixed(1)}px)`;
+      });
+      el.addEventListener("pointerleave", () => { el.style.transform = ""; });
     });
   }
 })();

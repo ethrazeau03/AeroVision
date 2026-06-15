@@ -17,6 +17,12 @@
 </head>
 <body>
 
+  <!-- Aurora flow shader backdrop -->
+  <canvas class="bg-shader" id="bgShader" aria-hidden="true"></canvas>
+
+  <!-- Scroll progress -->
+  <div class="scroll-progress" id="scrollProgress" aria-hidden="true"></div>
+
   <!-- ===================== HEADER / NAV ===================== -->
   <header class="site-header" id="siteHeader">
     <div class="container nav-inner">
@@ -41,7 +47,7 @@
         <a href="#services" class="nav-link">Services</a>
         <a href="#gallery" class="nav-link">Gallery</a>
         <a href="#why" class="nav-link">Why Us</a>
-        <a href="#contact" class="nav-link nav-cta">Request a Quote</a>
+        <a href="#contact" class="nav-link nav-cta" data-magnetic>Request a Quote</a>
       </nav>
 
       <button class="nav-toggle" id="navToggle" aria-label="Open menu" aria-expanded="false" aria-controls="navLinks">
@@ -71,7 +77,7 @@
         accurate site data &mdash; safely, quickly, and from angles the ground simply can&rsquo;t reach.
       </p>
       <div class="hero-actions reveal" data-reveal data-reveal-delay="3">
-        <a href="#contact" class="btn btn-primary">Request a Quote
+        <a href="#contact" class="btn btn-primary" data-magnetic>Request a Quote
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </a>
         <a href="#services" class="btn btn-ghost">View Services</a>
